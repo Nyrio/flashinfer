@@ -381,6 +381,53 @@ def test_deepseek_fp8_support_rejects_bias(monkeypatch):
     assert "DeepSeek FP8 Prims-TS bias" in reason
 
 
+@pytest.mark.parametrize("sm_arch", [100, 103, 107])
+def test_deepseek_fp8_support_is_disabled_on_sm107(monkeypatch, sm_arch):
+    monkeypatch.setattr(support, "is_prims_ts_available", lambda: True)
+    monkeypatch.setattr(support, "_device_supports_prims_ts", lambda device: True)
+    monkeypatch.setattr(support, "_sm_arch_for_device", lambda device: sm_arch)
+
+    ok, reason = support.is_prims_ts_fp8_block_scale_supported(
+        _runner(
+            dtype_act=DtypeTrtllmGen.E4m3,
+            dtype_weights=DtypeTrtllmGen.E4m3,
+            fp8_quantization_type=Fp8QuantizationType.DeepSeekFp8,
+        ),
+        _inputs(hidden_states_scale=torch.empty((4, 1), dtype=torch.float32)),
+        [8, 0],
+        weight_layout=WeightLayout.MajorK,
+        use_shuffled_weight=True,
+        gemm1_weights_scale=torch.empty((1,), dtype=torch.float32),
+        gemm2_weights_scale=torch.empty((1,), dtype=torch.float32),
+    )
+
+    if sm_arch == 107:
+        assert not ok
+        assert "DeepSeek FP8 Prims-TS is disabled on SM107" in reason
+    else:
+        assert ok
+        assert reason == ""
+
+
+def test_mxfp8_block_support_is_enabled_on_sm107(monkeypatch):
+    monkeypatch.setattr(support, "is_prims_ts_available", lambda: True)
+    monkeypatch.setattr(support, "_device_supports_prims_ts", lambda device: True)
+    monkeypatch.setattr(support, "_sm_arch_for_device", lambda device: 107)
+
+    ok, reason = support.is_prims_ts_fp8_block_scale_supported(
+        _runner(),
+        _inputs(),
+        [-1, -1],
+        weight_layout=WeightLayout.MajorK,
+        use_shuffled_weight=True,
+        gemm1_weights_scale=torch.empty((1,), dtype=torch.uint8),
+        gemm2_weights_scale=torch.empty((1,), dtype=torch.uint8),
+    )
+
+    assert ok
+    assert reason == ""
+
+
 def test_fp8_block_routing_resolver_accepts_unpacked_precomputed():
     hidden_states = torch.empty((4, 128), dtype=torch.bfloat16)
     topk_ids = torch.empty((4, 2), dtype=torch.int32)
